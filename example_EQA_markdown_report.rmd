@@ -18,16 +18,16 @@ READ THIS FIRST!
 
 Note that you will need to install rmarkdown on your machine prior to running this document. This comes pre-packaged with RStudio, but if you're using something else, then this can be installed with the following command in the R console:
 
-install.packages("rmarkdown")
+> install.packages("rmarkdown")
 
 You will need also need to install TinyTex - which is what generates the PDF behind the scenes - with the R console commands below:
 
-install.packages("tinytex")
-tinytex::install_tinytex()
+> install.packages("tinytex")
+> tinytex::install_tinytex()
 
 This make take several minutes to complete. It is also worth checking that it is all set up correctly by using the following in the R console:
 
-tinytex::is_tinytex()
+> tinytex::is_tinytex()
 
 This should output the result "TRUE" in the console.
 
