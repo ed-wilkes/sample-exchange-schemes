@@ -64,18 +64,19 @@ theme_plot <- theme(
 
 # Global variables
 num_digits <- 1 # number of digits to round values to
-num_samples <- 3 # number of samples per distributions
+num_samples <- 3 # number of samples per distribution
 window_size <- 6 # number of distributions to calculate B- and C-scores from
 units <- "nmol/L"
 analyte_name <- "YOUR_ANALYTE_HERE"
 author_name <- "YOUR_NAME_HERE"
+file_path <- "YOUR_FILE_PATH_HERE"
 ```
 
 ```{r read_data, echo=FALSE, message=FALSE, warning=FALSE}
 # Read in csv file of raw data
 df <- read.csv(
   # change this to the file path of your input data, although I've sent you some example data
-  file = "example_data.csv" 
+  file = file_path
   ,header = TRUE  # this states that the first row is the column names
 )
 
