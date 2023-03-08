@@ -1,0 +1,338 @@
+---
+title: "ANALYTE_NAME_HERE exchange scheme" # change this to your analyte of choice
+header-includes:
+  \usepackage{palatino}
+  \renewcommand{\familydefault}{\sfdefault}
+  \fontfamily{ppl}\selectfont
+  \usepackage{booktabs}
+  \usepackage{longtable}
+output:
+  pdf_document:
+    df_print: kable
+  html_document: default
+fontsize: 12pt # you can alter the master font size here
+---
+
+<!-- 
+READ THIS FIRST!
+
+Note that you will need to install rmarkdown on your machine prior to running this document. This comes pre-packaged with RStudio, but if you're using something else, then this can be installed with the following command in the R console:
+
+install.packages("rmarkdown")
+
+You will need also need to install TinyTex - which is what generates the PDF behind the scenes - with the R console commands below:
+
+install.packages("tinytex")
+tinytex::install_tinytex()
+
+This make take several minutes to complete. It is also worth checking that it is all set up correctly by using the following in the R console:
+
+tinytex::is_tinytex()
+
+This should output the result "TRUE" in the console.
+
+-->
+
+***
+
+```{r load_packages, echo=FALSE, message=FALSE, warning=FALSE}
+# These are the required R packages. RStudio will automatically check to see if they're installed
+library(DescTools)
+library(dplyr)
+library(ggplot2)
+library(irr)
+library(kableExtra)
+library(knitr)
+library(reshape2)
+options(tinytex.verbose = TRUE)
+
+# Plot theme settings - change for your preference!
+theme_plot <- theme(
+  panel.background = element_blank()
+  ,panel.grid.major = element_blank()
+  ,panel.grid.minor = element_blank()
+  ,panel.border = element_rect(fill = NA, colour = "black")
+  ,axis.text = element_text(colour = "black", size = 12)
+  ,axis.title = element_text(colour = "black", size = 12)
+  ,legend.text = element_text(colour = "black", size = 12)
+  ,legend.title = element_text(colour = "black", size = 12, face = "bold")
+  ,legend.background = element_rect(colour = "black", fill = NA)
+  ,axis.ticks = element_line(colour = "black")
+  ,strip.background = element_rect(fill = "grey80", colour = "black")
+  ,strip.text = element_text(colour = "black", size = 12)
+)
+
+# Global variables
+num_digits <- 1 # number of digits to round values to
+num_samples <- 3 # number of samples per distributions
+window_size <- 6 # number of distributions to calculate B- and C-scores from
+units <- "nmol/L"
+analyte_name <- "YOUR_ANALYTE_HERE"
+author_name <- "YOUR_NAME_HERE"
+```
+
+```{r read_data, echo=FALSE, message=FALSE, warning=FALSE}
+# Read in csv file of raw data
+df <- read.csv(
+  # change this to the file path of your input data, although I've sent you some example data
+  file = "example_data.csv" 
+  ,header = TRUE  # this states that the first row is the column names
+)
+
+# Let's say that this is the structure of your data, where each distribution has three samples
+# Note that this is in long format already for simplicity
+
+# ------------------------------------
+# Distribution | Sample | Lab | Result
+# ------------------------------------
+#            1 |      1 |   A |    1.4
+#            1 |      1 |   B |    2.2
+#            1 |      1 |   C |    1.6
+#            1 |      2 |   A |    3.6
+#            1 |      2 |   B |    4.2
+#            1 |      2 |   C |    3.9
+#            1 |      3 |   A |   10.1
+#            1 |      3 |   B |   11.3
+#            1 |      3 |   C |   10.5
+#            2 |      1 |   A |    5.4
+#            2 |      1 |   B |    6.5
+#            2 |      1 |   C |    6.1
+#            2 |      2 |   A |    1.6
+#            2 |      2 |   B |    2.5
+#            2 |      2 |   C |    1.7
+#            2 |      3 |   A |   22.3
+#            2 |      3 |   B |   21.1
+#            2 |      3 |   C |   24.2
+# ------------------------------------
+
+# Get last distribution number
+num_dist <- max(unique(as.numeric(as.character(df$Distribution))))
+```
+### **Report author:**
+
+`r author_name`
+
+### **Report date:**
+
+`r date()`
+
+### **Distribution number:**
+
+`r num_dist`
+
+### **Summary of distribution `r num_dist`'s results**:
+```{r show_data, echo=FALSE, message=FALSE, warning=FALSE}
+df_results <- filter(df, Distribution == num_dist)
+
+kable(df_results, booktabs = TRUE, align = c("r", "r", "l", "r")) %>%
+  kable_styling(position = "left", font_size = 12) %>%
+  # NB: you will need to change the group_rows commands here depending on how many samples you distribute
+  group_rows("1", 1, num_samples) %>%
+  group_rows("2", num_samples + 1, 2 * num_samples) %>%
+  group_rows("3", (2 * num_samples) + 1, 3 * num_samples)
+```
+\clearpage
+
+### **Absolute difference vs ALM (all-laboratory mean)**:
+```{r plot_diff_vs_alm, echo=FALSE, message=FALSE, warning=FALSE, fig.height=4, fig.width=6, fig.align='center'}
+# Calculate ALM, ALSD, bias, and difference for each distribution
+df_processed <- df %>%
+  group_by(Distribution, Sample) %>%
+  mutate(
+    alm = round(mean(Result, na.rm = TRUE), num_digits)
+    ,alsd = sd(Result, na.rm = TRUE)
+    ,difference = round(Result - alm, num_digits)
+    ,bias = round(difference / alm, 3) * 100
+  ) 
+
+# Individual differences ~ Concentration
+max_diff = max(filter(df_processed, Distribution == num_dist)$difference, na.rm = TRUE)
+min_diff = min(filter(df_processed, Distribution == num_dist)$difference, na.rm = TRUE)
+
+if (abs(max_diff) > abs(min_diff)) {
+  y_max <- max_diff
+  y_min <- -max_diff
+} else {
+  y_max <- abs(min_diff)
+  y_min <- min_diff
+}
+
+# Plot 1
+plot_1 <- ggplot(filter(df_processed, Distribution == num_dist), aes(x = alm, y = difference, colour = Lab))+
+  geom_point(size = 3, alpha = 0.75)+
+  geom_hline(yintercept = 0, colour = "black", linetype = "dashed")+
+  theme_plot+
+  expand_limits(x = 0)+
+  xlab(paste0("ALM (", units, ")"))+
+  ylab(paste0("Absolute difference ", units))+
+  ylim(c(y_min, y_max))
+print(plot_1)
+
+```
+
+### **Relative bias vs ALM**:
+```{r plot_bias_vs_alm, echo=FALSE, warning=FALSE, message=FALSE, fig.height=4, fig.width=6, fig.align='center'}
+# Bias ~ Concentration
+max_bias = max(filter(df_processed, Distribution == num_dist)$bias, na.rm = TRUE)
+min_bias = min(filter(df_processed, Distribution == num_dist)$bias, na.rm = TRUE)
+
+if (abs(max_bias) > abs(min_bias)) {
+  y_max <- max_bias
+  y_min <- -max_bias
+} else {
+  y_max <- abs(min_bias)
+  y_min <- min_bias
+}
+
+plot_2 <- ggplot(filter(df_processed, Distribution == num_dist), aes(x = alm, y = bias, colour = Lab))+
+  geom_hline(yintercept = 0, colour = "black", linetype = "dashed")+
+  geom_point(size = 3, alpha = 0.75)+
+  ylim(c(y_min, y_max))+
+  expand_limits(x = 0)+
+  theme_plot+
+  xlab(paste0("ALM (", units, ")"))+
+  ylab("Relative bias (%)")
+print(plot_2)
+```
+\clearpage
+
+### **Relative bias vs distribution**:
+```{r plot_bias_vs_dist, echo=FALSE, warning=FALSE, message=FALSE, fig.width=5.33, fig.height=8.6, fig.align='center'}
+# Total distributions
+distributions <- as.numeric(unique(df_processed$Distribution))
+
+plot_3 <- ggplot(df_processed, aes(x = as.numeric(Distribution), y = bias))+
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_point(size = 3, alpha = 0.5)+
+  facet_wrap(~Lab, ncol = 1)+
+  theme_plot+
+  ylim(c(-50, 50))+
+  scale_x_continuous(breaks = distributions)+
+  xlab("Distribution")+
+  ylab("Relative bias (%)")
+print(plot_3)
+```
+\clearpage
+
+### **Relative bias vs concentration**:
+```{r plot_bias_vs_conc, echo=FALSE, warning=FALSE, message=FALSE, fig.width=5.33, fig.height=8.6, fig.align='center'}
+plot_4 <- ggplot(df_processed, aes(x = Result, y = bias))+
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_point(size = 3, alpha = 0.6)+
+  facet_wrap(~Lab, ncol = 1)+
+  theme_plot+
+  ylim(c(-50, 50))+
+  xlab(paste0(analyte_name, " (", units, ")"))+
+  ylab("Relative bias (%)")
+print(plot_4)
+```
+\clearpage
+
+### **B-score summary**:
+B-scores are based on the mean of the last `r window_size` distributions' biases (in a rolling window). The number of data-points used to calculate the B-score for each distribution is shown above each point. Data-points may be missing due to undetectable ("<") values.
+
+```{r b_scores, echo=FALSE, message=FALSE, warning=FALSE, fig.height=7.5, fig.width=5.33, fig.align='center'}
+# Generate vectors of `window_size` distribution windows (trim for values < 1) and calculate B & C scores
+list_windows <- list()
+
+for (i in rev(distributions)) {
+  
+  dist_window <- (i - (window_size - 1)):i
+  dist_window <- dist_window[which(dist_window > 0)]
+  dist_window <- as.character(dist_window)
+  
+  df_summary <- df_processed %>%
+    filter(Distribution %in% dist_window) %>%
+    group_by(Lab) %>%
+    summarise(
+      n = sum(!is.na(bias))
+      ,B_score = ifelse(
+        n >= 3 
+        ,yes = mean(bias, na.rm = TRUE)
+        ,no = NA
+      )
+      ,C_score = ifelse(
+        n >= 3 
+        ,yes = sd(bias, na.rm = TRUE)
+        ,no = NA
+      )
+    )
+  df_summary$Distribution <- i
+  df_summary$Window <- paste0(dist_window, collapse = "")
+  list_windows[[i]] <- df_summary
+  
+}
+
+df_summary_all <- bind_rows(list_windows)
+
+# Convert NaN to NA
+df_summary_all$B_score[is.na(df_summary_all$B_score)] <- NA 
+df_summary_all$C_score[is.na(df_summary_all$C_score)] <- NA 
+
+# Calculate scales
+max_b = max(df_summary_all$B_score, na.rm = TRUE)
+min_b = min(df_summary_all$B_score, na.rm = TRUE)
+
+if (abs(max_b) > abs(min_b)) {
+  y_max <- max_b + (0.4 * max_b)
+  y_min <- -(max_b + (0.4 * max_b))
+} else {
+  y_max <- abs(min_b + (0.4 * min_b))
+  y_min <- min_b + (0.4 * min_b)
+}
+
+# B score plots
+plot_5 <- ggplot(df_summary_all, aes(x = as.numeric(Distribution), y = B_score))+
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_point(size = 3)+
+  geom_line(aes(group = Lab))+
+  geom_text(aes(label = n, y = B_score + 8))+
+  facet_wrap(~Lab, ncol = 1)+
+  theme_plot+
+  scale_x_continuous(breaks = distributions)+
+  scale_y_continuous(limits = c(y_min, y_max), expand = c(0.2, 0))+
+  xlab("Distribution")+
+  ylab("B score (%)")
+print(plot_5)
+
+```
+\clearpage
+
+### **C-score summary**:
+C-scores are based on the SD of the last `r window_size` distributions' biases (in a rolling window). The number of data-points used for each calculated C-score are as shown in the B-score plot on page 7.
+
+```{r c_scores, echo=FALSE, message=FALSE, warning=FALSE, fig.height=7.5, fig.width=5.33, fig.align='center'}
+# C score plots
+plot_6 <- ggplot(df_summary_all, aes(x = as.numeric(Distribution), y = C_score))+
+  geom_point(size = 3)+
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_line(aes(group = Lab))+
+  facet_wrap(~Lab, ncol = 1)+
+  theme_plot+
+  scale_x_continuous(breaks = distributions)+
+  ylim(c(0,30))+
+  xlab("Distribution")+
+  ylab("C score (%)")
+print(plot_6)
+```
+<!-- \clearpage -->
+
+### **Tabulated B- and C- score data**:
+```{r summary_table, echo=FALSE, warning=FALSE, message=FALSE}
+dist_range <- tail(distributions, window_size)
+
+df_scores <- df_summary_all %>%
+  arrange(Lab) %>%
+  select(Lab, Distribution, B_score, C_score) %>%
+  mutate(B_score = format(B_score, digits = 2), C_score = format(C_score, digits = 2)) %>%
+  rename(`B-score` = B_score, `C-score` = C_score)
+
+filter(df_scores, Distribution %in% dist_range) %>%
+  kable(format = "latex", booktabs = TRUE, align = c("r", "l", "r", "r")) %>%
+  kable_styling(position = "left", font_size = 12) %>%
+  # NB: you will need to change the group_rows commands here depending on how many labs you have participating
+  group_rows("A", 1, length(dist_range)) %>%
+  group_rows("B", length(dist_range) + 1, 2 * length(dist_range)) %>%
+  group_rows("C", (2 * length(dist_range)) + 1, 3 * length(dist_range))
+```
+\clearpage
